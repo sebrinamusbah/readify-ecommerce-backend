@@ -24,7 +24,7 @@ app.use("/api/orders", orderRoutes);
 app.use("/api/checkout", stripeRoutes);
 
 // Test route
-app.get("/", (req, res) => res.send("Backend is running ✅"));
+app.get("/", (req, res) => res.send("Backend is running"));
 
 // Start server
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
