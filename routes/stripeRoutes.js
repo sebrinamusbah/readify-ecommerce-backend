@@ -1,20 +1,28 @@
+const express = require("express");
+const router = express.Router();
 const Stripe = require("stripe");
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-const createCheckoutSession = async(req, res) => {
-    try {
-        const session = await stripe.checkout.sessions.create({
-            payment_method_types: ["card"],
-            line_items: req.body.items,
-            mode: "payment",
-            success_url: `${process.env.CLIENT_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${process.env.CLIENT_URL}/cancel`,
-        });
-        res.json({ url: session.url });
-    } catch (err) {
-        console.error("Stripe Error:", err);
-        res.status(500).json({ message: "Stripe checkout failed" });
-    }
-};
+// POST /api/stripe/create-payment-intent
+router.post("/create-payment-intent", async (req, res) => {
+  try {
+    const { amount } = req.body;
 
-module.exports = { createCheckoutSession };
+    if (!amount) {
+      return res.status(400).json({ message: "Amount is required" });
+    }
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Number(amount),
+      currency: "usd",
+    });
+
+    res.json({ clientSecret: paymentIntent.client_secret });
+  } catch (error) {
+    console.error("Stripe Error:", error.message);
+    res.status(500).json({ message: "Stripe error" });
+  }
+});
+
+module.exports = router;
