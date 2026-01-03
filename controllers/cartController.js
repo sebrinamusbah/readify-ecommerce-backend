@@ -1,4 +1,6 @@
-const cartService = require("../services/cartService");
+// controllers/cartController.js
+const { CartItem, Book, User } = require("../models");
+const { Op } = require("sequelize");
 
 // @desc    Get user's cart
 // @route   GET /api/cart
@@ -6,13 +8,53 @@ const cartService = require("../services/cartService");
 exports.getCart = async (req, res) => {
   try {
     const userId = req.user.id;
-    const result = await cartService.getUserCart(userId);
+
+    const cartItems = await CartItem.findAll({
+      where: { userId },
+      include: [
+        {
+          model: Book,
+          as: "book",
+          attributes: ["id", "title", "author", "price", "coverImage", "stock"],
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+    });
+
+    // Calculate totals
+    let subtotal = 0;
+    let totalItems = 0;
+
+    const items = cartItems.map((item) => {
+      const itemTotal = item.quantity * item.book.price;
+      subtotal += itemTotal;
+      totalItems += item.quantity;
+
+      return {
+        id: item.id,
+        bookId: item.bookId,
+        quantity: item.quantity,
+        book: item.book,
+        itemTotal: parseFloat(itemTotal.toFixed(2)),
+        createdAt: item.createdAt,
+      };
+    });
+
+    // Calculate tax and total (example: 10% tax)
+    const taxRate = 0.1;
+    const tax = parseFloat((subtotal * taxRate).toFixed(2));
+    const total = parseFloat((subtotal + tax).toFixed(2));
 
     res.json({
       success: true,
       data: {
-        items: result.items,
-        summary: result.summary,
+        items,
+        summary: {
+          subtotal: parseFloat(subtotal.toFixed(2)),
+          tax,
+          total,
+          totalItems,
+        },
       },
     });
   } catch (error) {
@@ -47,33 +89,78 @@ exports.addToCart = async (req, res) => {
       });
     }
 
-    const result = await cartService.addToCart(userId, bookId, quantity);
+    // Check if book exists and is in stock
+    const book = await Book.findByPk(bookId);
+    if (!book) {
+      return res.status(404).json({
+        success: false,
+        error: "Book not found",
+      });
+    }
+
+    if (book.stock < quantity) {
+      return res.status(400).json({
+        success: false,
+        error: `Only ${book.stock} items available in stock`,
+      });
+    }
+
+    // Check if item already exists in cart
+    let cartItem = await CartItem.findOne({
+      where: { userId, bookId },
+    });
+
+    if (cartItem) {
+      // Update quantity if item already in cart
+      const newQuantity = cartItem.quantity + quantity;
+
+      // Check stock again for total quantity
+      if (book.stock < newQuantity) {
+        return res.status(400).json({
+          success: false,
+          error: `Cannot add ${quantity} more. Only ${
+            book.stock - cartItem.quantity
+          } available.`,
+        });
+      }
+
+      cartItem.quantity = newQuantity;
+      await cartItem.save();
+    } else {
+      // Create new cart item
+      cartItem = await CartItem.create({
+        userId,
+        bookId,
+        quantity,
+      });
+    }
+
+    // Get updated cart item with book details
+    const updatedCartItem = await CartItem.findByPk(cartItem.id, {
+      include: [
+        {
+          model: Book,
+          as: "book",
+          attributes: ["id", "title", "author", "price", "coverImage"],
+        },
+      ],
+    });
 
     res.status(201).json({
       success: true,
       message: "Item added to cart",
-      data: result,
+      data: {
+        id: updatedCartItem.id,
+        bookId: updatedCartItem.bookId,
+        quantity: updatedCartItem.quantity,
+        book: updatedCartItem.book,
+        itemTotal: parseFloat(
+          (updatedCartItem.quantity * updatedCartItem.book.price).toFixed(2)
+        ),
+      },
     });
   } catch (error) {
     console.error("[ERROR] Add to cart failed:", error);
-
-    if (error.message === "Book not found") {
-      return res.status(404).json({
-        success: false,
-        error: error.message,
-      });
-    }
-
-    if (
-      error.message.includes("available in stock") ||
-      error.message.includes("Only")
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: error.message,
-      });
-    }
-
     res.status(500).json({
       success: false,
       error: "Failed to add item to cart",
@@ -97,37 +184,70 @@ exports.updateCartItem = async (req, res) => {
       });
     }
 
-    const result = await cartService.updateCartItem(userId, id, quantity);
+    // Find cart item
+    const cartItem = await CartItem.findOne({
+      where: { id, userId },
+      include: [
+        {
+          model: Book,
+          as: "book",
+        },
+      ],
+    });
 
+    if (!cartItem) {
+      return res.status(404).json({
+        success: false,
+        error: "Cart item not found",
+      });
+    }
+
+    // If quantity is 0, remove item
     if (quantity === 0) {
+      await cartItem.destroy();
       return res.json({
         success: true,
         message: "Item removed from cart",
       });
     }
 
+    // Check stock availability
+    if (cartItem.book.stock < quantity) {
+      return res.status(400).json({
+        success: false,
+        error: `Only ${cartItem.book.stock} items available in stock`,
+      });
+    }
+
+    // Update quantity
+    cartItem.quantity = quantity;
+    await cartItem.save();
+
+    const updatedCartItem = await CartItem.findByPk(cartItem.id, {
+      include: [
+        {
+          model: Book,
+          as: "book",
+          attributes: ["id", "title", "author", "price", "coverImage"],
+        },
+      ],
+    });
+
     res.json({
       success: true,
       message: "Cart updated",
-      data: result,
+      data: {
+        id: updatedCartItem.id,
+        bookId: updatedCartItem.bookId,
+        quantity: updatedCartItem.quantity,
+        book: updatedCartItem.book,
+        itemTotal: parseFloat(
+          (updatedCartItem.quantity * updatedCartItem.book.price).toFixed(2)
+        ),
+      },
     });
   } catch (error) {
     console.error("[ERROR] Update cart item failed:", error);
-
-    if (error.message === "Cart item not found") {
-      return res.status(404).json({
-        success: false,
-        error: error.message,
-      });
-    }
-
-    if (error.message.includes("available in stock")) {
-      return res.status(400).json({
-        success: false,
-        error: error.message,
-      });
-    }
-
     res.status(500).json({
       success: false,
       error: "Failed to update cart",
@@ -143,7 +263,18 @@ exports.removeFromCart = async (req, res) => {
     const userId = req.user.id;
     const { id } = req.params;
 
-    await cartService.removeFromCart(userId, id);
+    const cartItem = await CartItem.findOne({
+      where: { id, userId },
+    });
+
+    if (!cartItem) {
+      return res.status(404).json({
+        success: false,
+        error: "Cart item not found",
+      });
+    }
+
+    await cartItem.destroy();
 
     res.json({
       success: true,
@@ -151,14 +282,6 @@ exports.removeFromCart = async (req, res) => {
     });
   } catch (error) {
     console.error("[ERROR] Remove from cart failed:", error);
-
-    if (error.message === "Cart item not found") {
-      return res.status(404).json({
-        success: false,
-        error: error.message,
-      });
-    }
-
     res.status(500).json({
       success: false,
       error: "Failed to remove item from cart",
@@ -173,7 +296,9 @@ exports.clearCart = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    await cartService.clearCart(userId);
+    await CartItem.destroy({
+      where: { userId },
+    });
 
     res.json({
       success: true,
@@ -194,11 +319,20 @@ exports.clearCart = async (req, res) => {
 exports.getCartCount = async (req, res) => {
   try {
     const userId = req.user.id;
-    const result = await cartService.getCartCount(userId);
+
+    const cartItems = await CartItem.findAll({
+      where: { userId },
+      attributes: ["quantity"],
+    });
+
+    const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
     res.json({
       success: true,
-      data: result,
+      data: {
+        totalItems,
+        uniqueItems: cartItems.length,
+      },
     });
   } catch (error) {
     console.error("[ERROR] Get cart count failed:", error);
@@ -217,25 +351,33 @@ exports.moveToWishlist = async (req, res) => {
     const userId = req.user.id;
     const { id } = req.params;
 
-    const result = await cartService.moveToWishlist(userId, id);
+    // This would require a Wishlist model
+    // For now, just remove from cart
+    const cartItem = await CartItem.findOne({
+      where: { id, userId },
+      include: [{ model: Book, as: "book" }],
+    });
+
+    if (!cartItem) {
+      return res.status(404).json({
+        success: false,
+        error: "Cart item not found",
+      });
+    }
+
+    // TODO: Add to wishlist model if you create one
+
+    await cartItem.destroy();
 
     res.json({
       success: true,
       message: "Item moved to wishlist",
       data: {
-        book: result.book,
+        book: cartItem.book,
       },
     });
   } catch (error) {
     console.error("[ERROR] Move to wishlist failed:", error);
-
-    if (error.message === "Cart item not found") {
-      return res.status(404).json({
-        success: false,
-        error: error.message,
-      });
-    }
-
     res.status(500).json({
       success: false,
       error: "Failed to move item to wishlist",

@@ -8,7 +8,7 @@ const { authLimiter } = require("../middleware/securityMiddleware");
 const validateRequest = require("../middleware/validateRequest");
 
 // Apply rate limiting to all auth endpoints
-router.use(authLimiter);
+router.use("/", authLimiter);
 
 // Validation middleware for registration
 const registerValidation = [
@@ -39,7 +39,7 @@ const registerValidation = [
     .withMessage("Password must be 8-128 characters")
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
     .withMessage(
-      "Password must contain at least one uppercase, one lowercase, and one number",
+      "Password must contain at least one uppercase, one lowercase, and one number"
     ),
 
   body("phone")
@@ -109,7 +109,7 @@ const changePasswordValidation = [
     .withMessage("Password must be 8-128 characters")
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
     .withMessage(
-      "Password must contain at least one uppercase, one lowercase, and one number",
+      "Password must contain at least one uppercase, one lowercase, and one number"
     )
     .custom((value, { req }) => {
       if (value === req.body.currentPassword) {
@@ -126,7 +126,7 @@ router.post(
   "/register",
   registerValidation,
   validateRequest,
-  authController.register,
+  authController.register
 );
 
 // @route   POST /api/auth/login
@@ -147,7 +147,7 @@ router.put(
   authMiddleware,
   updateProfileValidation,
   validateRequest,
-  authController.updateProfile,
+  authController.updateProfile
 );
 
 // @route   PUT /api/auth/change-password
@@ -158,7 +158,7 @@ router.put(
   authMiddleware,
   changePasswordValidation,
   validateRequest,
-  authController.changePassword,
+  authController.changePassword
 );
 
 // @route   POST /api/auth/logout
@@ -178,7 +178,7 @@ router.post(
   "/forgot-password",
   [body("email").isEmail().normalizeEmail()],
   validateRequest,
-  authController.forgotPassword,
+  authController.forgotPassword
 );
 
 // @route   POST /api/auth/reset-password/:token
@@ -194,11 +194,11 @@ router.post(
       .withMessage("Password must be 8-128 characters")
       .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
       .withMessage(
-        "Password must contain at least one uppercase, one lowercase, and one number",
+        "Password must contain at least one uppercase, one lowercase, and one number"
       ),
   ],
   validateRequest,
-  authController.resetPassword,
+  authController.resetPassword
 );
 
 module.exports = router;

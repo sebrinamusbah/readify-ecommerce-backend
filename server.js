@@ -1,4 +1,3 @@
-// server.js
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
@@ -9,11 +8,7 @@ const path = require('path');
 dotenv.config();
 
 // Import security middleware
-const {
-    securityHeaders,
-    customSecurity,
-    generalLimiter
-} = require('./middleware/securityMiddleware');
+const { securityMiddleware, authLimiter } = require('./middleware/securityMiddleware');
 
 // Import database connection
 const { sequelize } = require('./config/db');
@@ -35,36 +30,33 @@ const app = express();
 // SECURITY MIDDLEWARE
 // ========================
 
-// 1. Security headers (Helmet)
-app.use(securityHeaders);
+// Apply all security middleware from the array (includes helmet + custom security)
+app.use(securityMiddleware);
 
-// 2. Custom security headers
-app.use(customSecurity);
-
-// 3. Rate limiting for all routes
-app.use(generalLimiter);
+// Rate limiting for all routes (optional - you can comment this out if too restrictive)
+// app.use(authLimiter); // Comment this out for now since it's very restrictive (10 requests/15min)
 
 // ========================
 // BASIC MIDDLEWARE
 // ========================
 
-// 4. CORS configuration
+// CORS configuration
 app.use(cors({
     origin: process.env.NODE_ENV === 'production' ?
-        process.env.CORS_ORIGIN ?.split(',') || ['https://yourdomain.com'] : ['http://localhost:3000', 'http://localhost:5173'], // React/Vite dev servers
+        process.env.CORS_ORIGIN ?.split(',') || ['https://yourdomain.com'] : ['http://localhost:3000', 'http://localhost:5173'],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-// 5. Request logging
+// Request logging
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-// 6. Body parsers
+// Body parsers
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// 7. Static files (if you have public folder)
+// Static files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // ========================
@@ -93,7 +85,7 @@ const testDatabaseConnection = async() => {
 // ROUTES
 // ========================
 
-// 8. Health check endpoint
+// Health check endpoint
 app.get('/api/health', (req, res) => {
     res.json({
         success: true,
@@ -104,7 +96,7 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-// 9. API Routes
+// API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/books', bookRoutes);
 app.use('/api/admin', adminRoutes);
@@ -114,7 +106,7 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/reviews', reviewRoutes);
 
-// 10. Welcome route
+// Welcome route
 app.get('/', (req, res) => {
     res.json({
         success: true,
@@ -135,15 +127,15 @@ app.get('/', (req, res) => {
 // ERROR HANDLING
 // ========================
 
-// 11. 404 Not Found handler
-app.use('*', (req, res) => {
+// 404 Not Found handler - FIXED
+app.use((req, res, next) => {
     res.status(404).json({
         success: false,
         error: `Cannot ${req.method} ${req.originalUrl}`
     });
 });
 
-// 12. Global error handler
+// Global error handler
 app.use((err, req, res, next) => {
     console.error('[ERROR]', err.stack);
 

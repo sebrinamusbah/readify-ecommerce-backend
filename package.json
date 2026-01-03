@@ -43,6 +43,7 @@
         "pg-hstore": "^2.3.4",
         "sequelize": "^6.37.7",
         "slugify": "^1.6.6",
+        "stripe": "^20.1.0",
         "validator": "^13.15.26"
     },
     "devDependencies": {
