@@ -1,45 +1,16 @@
-// controllers/categoryController.js
-const { Category, Book } = require("../models");
-const { Op } = require("sequelize");
-const slugify = require("slugify");
-
-// Helper function to generate slug
-const generateSlug = (name) => {
-  return slugify(name, {
-    lower: true,
-    strict: true,
-    remove: /[*+~.()'"!:@]/g,
-  });
-};
+const categoryService = require("../services/categoryService");
 
 // @desc    Get all categories
 // @route   GET /api/categories
 // @access  Public
 exports.getAllCategories = async (req, res) => {
   try {
-    const categories = await Category.findAll({
-      order: [["name", "ASC"]],
-      attributes: ["id", "name", "slug", "description", "createdAt"],
-    });
-
-    // Get book count for each category
-    const categoriesWithCounts = await Promise.all(
-      categories.map(async (category) => {
-        const bookCount = await Book.count({
-          where: { categoryId: category.id },
-        });
-
-        return {
-          ...category.toJSON(),
-          bookCount,
-        };
-      }),
-    );
+    const categories = await categoryService.getAllCategories();
 
     res.json({
       success: true,
       count: categories.length,
-      data: categoriesWithCounts,
+      data: categories,
     });
   } catch (error) {
     console.error("[ERROR] Get all categories failed:", error);
@@ -56,17 +27,7 @@ exports.getAllCategories = async (req, res) => {
 exports.getCategoryById = async (req, res) => {
   try {
     const { id } = req.params;
-
-    const category = await Category.findByPk(id, {
-      include: [
-        {
-          model: Book,
-          as: "books",
-          attributes: ["id", "title", "author", "price", "coverImage", "stock"],
-          limit: 10, // Limit books in response
-        },
-      ],
-    });
+    const category = await categoryService.getCategoryById(id);
 
     if (!category) {
       return res.status(404).json({
@@ -75,17 +36,9 @@ exports.getCategoryById = async (req, res) => {
       });
     }
 
-    // Get total book count
-    const bookCount = await Book.count({
-      where: { categoryId: category.id },
-    });
-
-    const categoryData = category.toJSON();
-    categoryData.bookCount = bookCount;
-
     res.json({
       success: true,
-      data: categoryData,
+      data: category,
     });
   } catch (error) {
     console.error("[ERROR] Get category by ID failed:", error);
@@ -102,27 +55,7 @@ exports.getCategoryById = async (req, res) => {
 exports.getCategoryBySlug = async (req, res) => {
   try {
     const { slug } = req.params;
-
-    const category = await Category.findOne({
-      where: { slug },
-      include: [
-        {
-          model: Book,
-          as: "books",
-          attributes: [
-            "id",
-            "title",
-            "author",
-            "price",
-            "coverImage",
-            "stock",
-            "isFeatured",
-          ],
-          order: [["createdAt", "DESC"]],
-          limit: 20,
-        },
-      ],
-    });
+    const category = await categoryService.getCategoryBySlug(slug);
 
     if (!category) {
       return res.status(404).json({
@@ -131,27 +64,9 @@ exports.getCategoryBySlug = async (req, res) => {
       });
     }
 
-    // Get book count and featured books
-    const bookCount = await Book.count({
-      where: { categoryId: category.id },
-    });
-
-    const featuredBooks = await Book.findAll({
-      where: {
-        categoryId: category.id,
-        isFeatured: true,
-      },
-      limit: 5,
-      attributes: ["id", "title", "author", "price", "coverImage"],
-    });
-
-    const categoryData = category.toJSON();
-    categoryData.bookCount = bookCount;
-    categoryData.featuredBooks = featuredBooks;
-
     res.json({
       success: true,
-      data: categoryData,
+      data: category,
     });
   } catch (error) {
     console.error("[ERROR] Get category by slug failed:", error);
@@ -184,34 +99,8 @@ exports.createCategory = async (req, res) => {
       });
     }
 
-    // Generate slug
-    const slug = generateSlug(name.trim());
-
-    // Check if category already exists
-    const existingCategory = await Category.findOne({
-      where: {
-        [Op.or]: [
-          {
-            name: {
-              [Op.iLike]: name.trim(),
-            },
-          },
-          { slug: slug },
-        ],
-      },
-    });
-
-    if (existingCategory) {
-      return res.status(409).json({
-        success: false,
-        error: "Category with this name or slug already exists",
-      });
-    }
-
-    // Create category
-    const category = await Category.create({
+    const category = await categoryService.createCategory({
       name: name.trim(),
-      slug,
       description: description ? description.trim() : null,
     });
 
@@ -222,6 +111,14 @@ exports.createCategory = async (req, res) => {
     });
   } catch (error) {
     console.error("[ERROR] Create category failed:", error);
+
+    if (error.message === "Category with this name or slug already exists") {
+      return res.status(409).json({
+        success: false,
+        error: error.message,
+      });
+    }
+
     res.status(500).json({
       success: false,
       error: "Failed to create category",
@@ -237,17 +134,7 @@ exports.updateCategory = async (req, res) => {
     const { id } = req.params;
     const { name, description } = req.body;
 
-    const category = await Category.findByPk(id);
-    if (!category) {
-      return res.status(404).json({
-        success: false,
-        error: "Category not found",
-      });
-    }
-
-    const updateData = {};
-
-    // Update name if provided
+    // Validate name if provided
     if (name !== undefined) {
       if (name.trim().length < 2) {
         return res.status(400).json({
@@ -262,58 +149,42 @@ exports.updateCategory = async (req, res) => {
           error: "Category name cannot exceed 100 characters",
         });
       }
-
-      const newName = name.trim();
-      const newSlug = generateSlug(newName);
-
-      // Check if new name/slug conflicts with existing category
-      if (newName.toLowerCase() !== category.name.toLowerCase()) {
-        const existingCategory = await Category.findOne({
-          where: {
-            [Op.or]: [
-              {
-                name: {
-                  [Op.iLike]: newName,
-                },
-              },
-              { slug: newSlug },
-            ],
-            id: {
-              [Op.ne]: id,
-            },
-          },
-        });
-
-        if (existingCategory) {
-          return res.status(409).json({
-            success: false,
-            error: "Another category with this name or slug already exists",
-          });
-        }
-      }
-
-      updateData.name = newName;
-      updateData.slug = newSlug;
     }
 
-    // Update description if provided
-    if (description !== undefined) {
-      updateData.description = description ? description.trim() : null;
+    const category = await categoryService.updateCategory(id, {
+      name: name ? name.trim() : undefined,
+      description:
+        description !== undefined
+          ? description
+            ? description.trim()
+            : null
+          : undefined,
+    });
+
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        error: "Category not found",
+      });
     }
-
-    // Update category
-    await category.update(updateData);
-
-    // Get updated category
-    const updatedCategory = await Category.findByPk(id);
 
     res.json({
       success: true,
       message: "Category updated successfully",
-      data: updatedCategory,
+      data: category,
     });
   } catch (error) {
     console.error("[ERROR] Update category failed:", error);
+
+    if (
+      error.message === "Another category with this name or slug already exists"
+    ) {
+      return res.status(409).json({
+        success: false,
+        error: error.message,
+      });
+    }
+
     res.status(500).json({
       success: false,
       error: "Failed to update category",
@@ -328,27 +199,21 @@ exports.deleteCategory = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const category = await Category.findByPk(id);
-    if (!category) {
+    const result = await categoryService.deleteCategory(id);
+
+    if (!result.found) {
       return res.status(404).json({
         success: false,
         error: "Category not found",
       });
     }
 
-    // Check if category has books
-    const bookCount = await Book.count({
-      where: { categoryId: id },
-    });
-
-    if (bookCount > 0) {
+    if (!result.deleted) {
       return res.status(400).json({
         success: false,
-        error: `Cannot delete category. It has ${bookCount} book(s). Move or delete the books first.`,
+        error: `Cannot delete category. It has ${result.bookCount} book(s). Move or delete the books first.`,
       });
     }
-
-    await category.destroy();
 
     res.json({
       success: true,
@@ -368,36 +233,12 @@ exports.deleteCategory = async (req, res) => {
 // @access  Public
 exports.getCategoriesSummary = async (req, res) => {
   try {
-    const categories = await Category.findAll({
-      attributes: ["id", "name", "slug"],
-      order: [["name", "ASC"]],
-    });
-
-    // Get book counts for each category
-    const categoriesWithCounts = await Promise.all(
-      categories.map(async (category) => {
-        const bookCount = await Book.count({
-          where: { categoryId: category.id },
-        });
-
-        return {
-          id: category.id,
-          name: category.name,
-          slug: category.slug,
-          bookCount,
-        };
-      }),
-    );
-
-    // Filter out categories with no books (optional)
-    const activeCategories = categoriesWithCounts.filter(
-      (cat) => cat.bookCount > 0,
-    );
+    const categories = await categoryService.getCategoriesSummary();
 
     res.json({
       success: true,
-      count: activeCategories.length,
-      data: activeCategories,
+      count: categories.length,
+      data: categories,
     });
   } catch (error) {
     console.error("[ERROR] Get categories summary failed:", error);
@@ -422,49 +263,13 @@ exports.searchCategories = async (req, res) => {
       });
     }
 
-    const categories = await Category.findAll({
-      where: {
-        [Op.or]: [
-          {
-            name: {
-              [Op.iLike]: `%${q}%`,
-            },
-          },
-          {
-            description: {
-              [Op.iLike]: `%${q}%`,
-            },
-          },
-        ],
-      },
-      include: [
-        {
-          model: Book,
-          as: "books",
-          attributes: [],
-          required: false,
-        },
-      ],
-      attributes: [
-        "id",
-        "name",
-        "slug",
-        "description",
-        [
-          Book.sequelize.fn("COUNT", Book.sequelize.col("books.id")),
-          "bookCount",
-        ],
-      ],
-      group: ["Category.id"],
-      order: [["name", "ASC"]],
-      limit: 10,
-    });
+    const result = await categoryService.searchCategories(q);
 
     res.json({
       success: true,
       query: q,
-      count: categories.length,
-      data: categories,
+      count: result.length,
+      data: result,
     });
   } catch (error) {
     console.error("[ERROR] Search categories failed:", error);
@@ -489,61 +294,20 @@ exports.bulkCreateCategories = async (req, res) => {
       });
     }
 
-    // Validate each category
-    const validCategories = [];
-    const errors = [];
+    const result = await categoryService.bulkCreateCategories(categories);
 
-    for (let i = 0; i < categories.length; i++) {
-      const cat = categories[i];
-
-      if (!cat.name || cat.name.trim().length < 2) {
-        errors.push(`Category ${i + 1}: Name must be at least 2 characters`);
-        continue;
-      }
-
-      if (cat.name.length > 100) {
-        errors.push(`Category ${i + 1}: Name cannot exceed 100 characters`);
-        continue;
-      }
-
-      const slug = generateSlug(cat.name.trim());
-
-      // Check for duplicates in the request
-      const isDuplicate = validCategories.some(
-        (validCat) =>
-          validCat.name.toLowerCase() === cat.name.toLowerCase() ||
-          validCat.slug === slug,
-      );
-
-      if (isDuplicate) {
-        errors.push(`Category ${i + 1}: Duplicate category name`);
-        continue;
-      }
-
-      validCategories.push({
-        name: cat.name.trim(),
-        slug,
-        description: cat.description ? cat.description.trim() : null,
-      });
-    }
-
-    if (errors.length > 0) {
+    if (result.errors && result.errors.length > 0) {
       return res.status(400).json({
         success: false,
-        errors,
+        errors: result.errors,
         message: "Some categories have validation errors",
       });
     }
 
-    // Create categories
-    const createdCategories = await Category.bulkCreate(validCategories, {
-      returning: true,
-    });
-
     res.status(201).json({
       success: true,
-      message: `${createdCategories.length} categories created successfully`,
-      data: createdCategories,
+      message: `${result.createdCategories.length} categories created successfully`,
+      data: result.createdCategories,
     });
   } catch (error) {
     console.error("[ERROR] Bulk create categories failed:", error);

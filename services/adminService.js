@@ -427,7 +427,7 @@ class AdminService {
             ]
         });
 
-        const totalRevenue = parseFloat(revenueResult[0] ? .dataValues ? .totalRevenue || 0);
+        const totalRevenue = parseFloat(revenueResult[0] ?.dataValues ?.totalRevenue || 0);
 
         return {
             counts: {
