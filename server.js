@@ -117,6 +117,7 @@ app.get('/', (req, res) => {
             books: '/api/books',
             admin: '/api/admin',
             cart: '/api/cart',
+                 categories: "/api/categories", 
             orders: '/api/orders',
             payments: '/api/payments'
         }
