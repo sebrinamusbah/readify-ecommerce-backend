@@ -1,13 +1,32 @@
-// controllers/adminController.js
-const { Book, Category, User, Order, OrderItem, Review } = require('../models');
-const { Op } = require('sequelize');
+const {
+    Book,
+    Category,
+    User,
+    Order,
+    OrderItem
+} = require("../models");
 
-// ==================== BOOK MANAGEMENT ====================
+const { Op } = require("sequelize");
+const cloudinary = require("../config/cloudinary");
 
-// @desc    Add new book (Admin only)
-// @route   POST /api/admin/books
-// @access  Private/Admin
-// controllers/adminController.js - SIMPLIFIED (URL-based)
+// ================= HELPER =================
+const toBool = (val) => val === true || val === "true";
+
+const uploadToCloudinary = (buffer) => {
+    return new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream({ folder: "books" },
+            (err, result) => {
+                if (err) return reject(err);
+                resolve(result);
+            }
+        );
+        stream.end(buffer);
+    });
+};
+
+// ==================== BOOK ====================
+
+// CREATE BOOK
 exports.addBook = async(req, res) => {
     try {
         const {
@@ -22,665 +41,271 @@ exports.addBook = async(req, res) => {
             language,
             publishedDate,
             isFeatured,
-            coverImage // ← Accept URL as string
         } = req.body;
 
-        // Validate required fields
         if (!title || !author || !price || !categoryId) {
-            return res.status(400).json({
-                success: false,
-                error: 'Title, author, price, and category are required'
-            });
+            return res.status(400).json({ error: "Missing required fields" });
         }
 
-        // Check if category exists
+        if (isNaN(price) || price < 0) {
+            return res.status(400).json({ error: "Invalid price" });
+        }
+
         const category = await Category.findByPk(categoryId);
         if (!category) {
-            return res.status(400).json({
-                success: false,
-                error: 'Category not found'
-            });
+            return res.status(400).json({ error: "Category not found" });
         }
 
-        // Check if ISBN exists
         if (isbn) {
-            const existingBook = await Book.findOne({ where: { isbn } });
-            if (existingBook) {
-                return res.status(400).json({
-                    success: false,
-                    error: 'A book with this ISBN already exists'
-                });
+            const exists = await Book.findOne({ where: { isbn } });
+            if (exists) {
+                return res.status(400).json({ error: "ISBN already exists" });
             }
         }
 
-        // Validate coverImage URL if provided
-        if (coverImage) {
-            try {
-                new URL(coverImage); // Will throw if invalid URL
-            } catch (error) {
-                return res.status(400).json({
-                    success: false,
-                    error: 'Invalid cover image URL'
-                });
-            }
+        let imageUrl =
+            "https://via.placeholder.com/300x400/4A90E2/FFFFFF?text=Book+Cover";
+
+        if (req.file) {
+            const result = await uploadToCloudinary(req.file.buffer);
+            imageUrl = result.secure_url;
         }
 
-        // Create book with cover image URL
         const book = await Book.create({
             title,
             author,
-            description: description || null,
-            price: parseFloat(price),
-            stock: parseInt(stock) || 0,
+            description,
+            price: Number(price),
+            stock: stock ? Number(stock) : 0,
             categoryId,
-            isbn: isbn || null,
-            pages: pages ? parseInt(pages) : null,
-            language: language || 'English',
-            publishedDate: publishedDate ? new Date(publishedDate) : null,
-            isFeatured: isFeatured === 'true',
-            coverImage: coverImage || "https://via.placeholder.com/300x400/4A90E2/FFFFFF?text=Book+Cover"
+            isbn,
+            pages: pages ? Number(pages) : null,
+            language: language || "English",
+            publishedDate: publishedDate || null,
+            isFeatured: toBool(isFeatured),
+            coverImage: imageUrl,
         });
 
-        res.status(201).json({
-            success: true,
-            message: 'Book added successfully',
-            data: book
-        });
+        res.status(201).json({ success: true, data: book });
 
-    } catch (error) {
-        console.error('[ERROR] Add book failed:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to add book'
-        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Create book failed" });
     }
 };
 
-// @desc    Update book (Admin only)
-// @route   PUT /api/admin/books/:id
-// @access  Private/Admin
+// UPDATE BOOK
 exports.updateBook = async(req, res) => {
     try {
-        const { id } = req.params;
+        const book = await Book.findByPk(req.params.id);
 
-        const book = await Book.findByPk(id);
         if (!book) {
-            return res.status(404).json({
-                success: false,
-                error: 'Book not found'
-            });
+            return res.status(404).json({ error: "Book not found" });
         }
 
-        // Check if updating ISBN and it already exists
-        if (req.body.isbn && req.body.isbn !== book.isbn) {
-            const existingBook = await Book.findOne({
-                where: { isbn: req.body.isbn }
-            });
-            if (existingBook) {
-                return res.status(400).json({
-                    success: false,
-                    error: 'A book with this ISBN already exists'
-                });
-            }
+        let imageUrl = book.coverImage;
+
+        if (req.file) {
+            const result = await uploadToCloudinary(req.file.buffer);
+            imageUrl = result.secure_url;
         }
 
-        // Update book
         await book.update({
             ...req.body,
-            price: req.body.price ? parseFloat(req.body.price) : book.price,
-            stock: req.body.stock ? parseInt(req.body.stock) : book.stock,
-            pages: req.body.pages ? parseInt(req.body.pages) : book.pages,
+            coverImage: imageUrl,
+            price: req.body.price ? Number(req.body.price) : book.price,
+            stock: req.body.stock ? Number(req.body.stock) : book.stock,
+            pages: req.body.pages ? Number(req.body.pages) : book.pages,
             isFeatured: req.body.isFeatured !== undefined ?
-                req.body.isFeatured === 'true' : book.isFeatured,
-            ...(req.file && { coverImage: `/uploads/${req.file.filename}` })
+                toBool(req.body.isFeatured) :
+                book.isFeatured,
         });
 
-        const updatedBook = await Book.findByPk(id, {
-            include: [{ model: Category, as: 'category' }]
-        });
+        res.json({ success: true, data: book });
 
-        res.json({
-            success: true,
-            message: 'Book updated successfully',
-            data: updatedBook
-        });
-
-    } catch (error) {
-        console.error('[ERROR] Update book failed:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to update book'
-        });
+    } catch (err) {
+        res.status(500).json({ error: "Update failed" });
     }
 };
 
-// @desc    Delete book (Admin only)
-// @route   DELETE /api/admin/books/:id
-// @access  Private/Admin
+// DELETE BOOK (WITH TRANSACTION)
 exports.deleteBook = async(req, res) => {
+    const t = await Book.sequelize.transaction();
+
     try {
-        const { id } = req.params;
+        const book = await Book.findByPk(req.params.id, { transaction: t });
 
-        const book = await Book.findByPk(id);
         if (!book) {
-            return res.status(404).json({
-                success: false,
-                error: 'Book not found'
-            });
+            await t.rollback();
+            return res.status(404).json({ error: "Book not found" });
         }
 
-        // Check if book has orders
-        const orderCount = await OrderItem.count({ where: { bookId: id } });
-        if (orderCount > 0) {
+        const count = await OrderItem.count({
+            where: { bookId: book.id },
+            transaction: t,
+        });
+
+        if (count > 0) {
+            await t.rollback();
             return res.status(400).json({
-                success: false,
-                error: `Cannot delete book. It has ${orderCount} order(s). You can mark it as inactive instead.`
+                error: "Cannot delete book with orders",
             });
         }
 
-        await book.destroy();
+        await book.destroy({ transaction: t });
 
-        res.json({
-            success: true,
-            message: 'Book deleted successfully'
-        });
+        await t.commit();
 
-    } catch (error) {
-        console.error('[ERROR] Delete book failed:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to delete book'
-        });
+        res.json({ success: true });
+
+    } catch (err) {
+        await t.rollback();
+        res.status(500).json({ error: "Delete failed" });
     }
 };
 
-// @desc    Update book stock (Admin only)
-// @route   PATCH /api/admin/books/:id/stock
-// @access  Private/Admin
+// UPDATE STOCK
 exports.updateStock = async(req, res) => {
     try {
-        const { id } = req.params;
-        const { quantity, action } = req.body; // action: 'add' or 'subtract'
+        const { quantity, action } = req.body;
 
         if (!quantity || isNaN(quantity)) {
-            return res.status(400).json({
-                success: false,
-                error: 'Valid quantity is required'
-            });
+            return res.status(400).json({ error: "Invalid quantity" });
         }
 
-        const book = await Book.findByPk(id);
+        const book = await Book.findByPk(req.params.id);
         if (!book) {
-            return res.status(404).json({
-                success: false,
-                error: 'Book not found'
-            });
+            return res.status(404).json({ error: "Book not found" });
         }
 
         let newStock = book.stock;
 
-        if (action === 'add') {
-            newStock += parseInt(quantity);
-        } else if (action === 'subtract') {
-            newStock -= parseInt(quantity);
-            if (newStock < 0) {
-                return res.status(400).json({
-                    success: false,
-                    error: 'Stock cannot be negative'
-                });
-            }
-        } else {
-            newStock = parseInt(quantity);
+        if (action === "add") newStock += Number(quantity);
+        else if (action === "subtract") newStock -= Number(quantity);
+        else newStock = Number(quantity);
+
+        if (newStock < 0) {
+            return res.status(400).json({ error: "Stock cannot be negative" });
         }
 
         await book.update({ stock: newStock });
 
-        res.json({
-            success: true,
-            message: `Stock updated to ${newStock}`,
-            data: { stock: newStock }
-        });
+        res.json({ success: true, stock: newStock });
 
-    } catch (error) {
-        console.error('[ERROR] Update stock failed:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to update stock'
-        });
+    } catch (err) {
+        res.status(500).json({ error: "Stock update failed" });
     }
 };
 
-// ==================== CATEGORY MANAGEMENT ====================
+// ==================== CATEGORY ====================
 
-// @desc    Add new category (Admin only)
-// @route   POST /api/admin/categories
-// @access  Private/Admin
 exports.addCategory = async(req, res) => {
     try {
         const { name, description } = req.body;
 
-        if (!name) {
-            return res.status(400).json({
-                success: false,
-                error: 'Category name is required'
-            });
-        }
+        if (!name) return res.status(400).json({ error: "Name required" });
 
-        // Check if category already exists
-        const existingCategory = await Category.findOne({
-            where: {
-                name: {
-                    [Op.iLike]: name
-                }
-            }
+        const exists = await Category.findOne({
+            where: { name: {
+                    [Op.iLike]: name } },
         });
 
-        if (existingCategory) {
-            return res.status(400).json({
-                success: false,
-                error: 'Category with this name already exists'
-            });
+        if (exists) {
+            return res.status(400).json({ error: "Category exists" });
         }
 
-        // Generate slug from name
-        const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+        const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
         const category = await Category.create({
             name,
             slug,
-            description: description || null
+            description,
         });
 
-        res.status(201).json({
-            success: true,
-            message: 'Category added successfully',
-            data: category
-        });
+        res.status(201).json({ success: true, data: category });
 
-    } catch (error) {
-        console.error('[ERROR] Add category failed:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to add category'
-        });
+    } catch (err) {
+        res.status(500).json({ error: "Create category failed" });
     }
 };
 
-// @desc    Update category (Admin only)
-// @route   PUT /api/admin/categories/:id
-// @access  Private/Admin
-exports.updateCategory = async(req, res) => {
-    try {
-        const { id } = req.params;
-        const { name, description } = req.body;
+// ==================== ORDER ====================
 
-        const category = await Category.findByPk(id);
-        if (!category) {
-            return res.status(404).json({
-                success: false,
-                error: 'Category not found'
-            });
-        }
-
-        // Check if new name conflicts with existing category
-        if (name && name !== category.name) {
-            const existingCategory = await Category.findOne({
-                where: {
-                    name: {
-                        [Op.iLike]: name
-                    },
-                    id: {
-                        [Op.ne]: id
-                    }
-                }
-            });
-
-            if (existingCategory) {
-                return res.status(400).json({
-                    success: false,
-                    error: 'Another category with this name already exists'
-                });
-            }
-        }
-
-        // Update category
-        const updateData = {};
-        if (name) {
-            updateData.name = name;
-            updateData.slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-        }
-        if (description !== undefined) {
-            updateData.description = description;
-        }
-
-        await category.update(updateData);
-
-        res.json({
-            success: true,
-            message: 'Category updated successfully',
-            data: category
-        });
-
-    } catch (error) {
-        console.error('[ERROR] Update category failed:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to update category'
-        });
-    }
-};
-
-// @desc    Delete category (Admin only)
-// @route   DELETE /api/admin/categories/:id
-// @access  Private/Admin
-exports.deleteCategory = async(req, res) => {
-    try {
-        const { id } = req.params;
-
-        const category = await Category.findByPk(id);
-        if (!category) {
-            return res.status(404).json({
-                success: false,
-                error: 'Category not found'
-            });
-        }
-
-        // Check if category has books
-        const bookCount = await Book.count({ where: { categoryId: id } });
-        if (bookCount > 0) {
-            return res.status(400).json({
-                success: false,
-                error: `Cannot delete category. It has ${bookCount} book(s). Move or delete the books first.`
-            });
-        }
-
-        await category.destroy();
-
-        res.json({
-            success: true,
-            message: 'Category deleted successfully'
-        });
-
-    } catch (error) {
-        console.error('[ERROR] Delete category failed:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to delete category'
-        });
-    }
-};
-
-// ==================== ORDER MANAGEMENT ====================
-
-// @desc    Get all orders (Admin only)
-// @route   GET /api/admin/orders
-// @access  Private/Admin
 exports.getAllOrders = async(req, res) => {
     try {
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 20;
-        const offset = (page - 1) * limit;
-
-        const { count, rows: orders } = await Order.findAndCountAll({
-            include: [{
-                    model: User,
-                    as: 'user',
-                    attributes: ['id', 'name', 'email']
-                },
+        const orders = await Order.findAll({
+            include: [
+                { model: User, as: "user", attributes: ["id", "name"] },
                 {
                     model: OrderItem,
-                    as: 'orderItems',
-                    include: [{
-                        model: Book,
-                        as: 'book',
-                        attributes: ['id', 'title', 'author', 'price']
-                    }]
-                }
+                    as: "orderItems",
+                    include: [{ model: Book, as: "book" }],
+                },
             ],
             order: [
-                ['createdAt', 'DESC']
+                ["createdAt", "DESC"]
             ],
-            limit,
-            offset,
-            distinct: true
         });
 
-        const totalPages = Math.ceil(count / limit);
+        res.json({ success: true, data: orders });
 
-        res.json({
-            success: true,
-            count,
-            pagination: {
-                page,
-                limit,
-                totalPages,
-                hasNextPage: page < totalPages,
-                hasPrevPage: page > 1
-            },
-            data: orders
-        });
-
-    } catch (error) {
-        console.error('[ERROR] Get all orders failed:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to fetch orders'
-        });
+    } catch (err) {
+        res.status(500).json({ error: "Fetch orders failed" });
     }
 };
 
-// @desc    Update order status (Admin only)
-// @route   PUT /api/admin/orders/:id/status
-// @access  Private/Admin
-exports.updateOrderStatus = async(req, res) => {
-    try {
-        const { id } = req.params;
-        const { status } = req.body;
+// ==================== USERS ====================
 
-        const validStatuses = ['pending', 'processing', 'shipped', 'delivered', 'cancelled'];
-
-        if (!status || !validStatuses.includes(status)) {
-            return res.status(400).json({
-                success: false,
-                error: `Valid status required: ${validStatuses.join(', ')}`
-            });
-        }
-
-        const order = await Order.findByPk(id);
-        if (!order) {
-            return res.status(404).json({
-                success: false,
-                error: 'Order not found'
-            });
-        }
-
-        await order.update({ status });
-
-        res.json({
-            success: true,
-            message: `Order status updated to ${status}`,
-            data: order
-        });
-
-    } catch (error) {
-        console.error('[ERROR] Update order status failed:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to update order status'
-        });
-    }
-};
-
-// ==================== USER MANAGEMENT ====================
-
-// @desc    Get all users (Admin only)
-// @route   GET /api/admin/users
-// @access  Private/Admin
 exports.getAllUsers = async(req, res) => {
     try {
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 20;
-        const offset = (page - 1) * limit;
-
-        const { count, rows: users } = await User.findAndCountAll({
-            attributes: { exclude: ['password'] },
+        const users = await User.findAll({
+            attributes: { exclude: ["password"] },
             order: [
-                ['createdAt', 'DESC']
+                ["createdAt", "DESC"]
             ],
-            limit,
-            offset,
-            distinct: true
         });
 
-        const totalPages = Math.ceil(count / limit);
+        res.json({ success: true, data: users });
 
-        res.json({
-            success: true,
-            count,
-            pagination: {
-                page,
-                limit,
-                totalPages,
-                hasNextPage: page < totalPages,
-                hasPrevPage: page > 1
-            },
-            data: users
-        });
-
-    } catch (error) {
-        console.error('[ERROR] Get all users failed:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to fetch users'
-        });
+    } catch (err) {
+        res.status(500).json({ error: "Fetch users failed" });
     }
 };
 
-// @desc    Update user (Admin only)
-// @route   PUT /api/admin/users/:id
-// @access  Private/Admin
-exports.updateUser = async(req, res) => {
-    try {
-        const { id } = req.params;
-        const { role, isActive } = req.body;
+// ==================== DASHBOARD ====================
 
-        const user = await User.findByPk(id, {
-            attributes: { exclude: ['password'] }
-        });
-
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                error: 'User not found'
-            });
-        }
-
-        // Don't allow demoting the last admin
-        if (role === 'user' && user.role === 'admin') {
-            const adminCount = await User.count({ where: { role: 'admin' } });
-            if (adminCount <= 1) {
-                return res.status(400).json({
-                    success: false,
-                    error: 'Cannot demote the last admin user'
-                });
-            }
-        }
-
-        const updateData = {};
-        if (role && ['user', 'admin'].includes(role)) {
-            updateData.role = role;
-        }
-        if (isActive !== undefined) {
-            updateData.isActive = isActive === 'true';
-        }
-
-        await user.update(updateData);
-
-        res.json({
-            success: true,
-            message: 'User updated successfully',
-            data: user
-        });
-
-    } catch (error) {
-        console.error('[ERROR] Update user failed:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to update user'
-        });
-    }
-};
-
-// ==================== DASHBOARD STATS ====================
-
-// @desc    Get admin dashboard statistics
-// @route   GET /api/admin/dashboard
-// @access  Private/Admin
 exports.getDashboardStats = async(req, res) => {
     try {
-        // Get counts
         const totalBooks = await Book.count();
         const totalUsers = await User.count();
         const totalOrders = await Order.count();
         const totalCategories = await Category.count();
 
-        // Get recent orders
-        const recentOrders = await Order.findAll({
-            include: [{
-                model: User,
-                as: 'user',
-                attributes: ['name', 'email']
-            }],
-            order: [
-                ['createdAt', 'DESC']
-            ],
-            limit: 5
-        });
-
-        // Get low stock books
-        const lowStockBooks = await Book.findAll({
-            where: {
-                stock: {
-                    [Op.lt]: 10
-                }
-            },
-            include: [{ model: Category, as: 'category' }],
-            order: [
-                ['stock', 'ASC']
-            ],
-            limit: 5
-        });
-
-        // Calculate revenue (only completed orders)
         const revenueResult = await Order.findAll({
-            where: { status: 'delivered' },
+            where: { status: "delivered" },
             attributes: [
-                [Book.sequelize.fn('SUM', Book.sequelize.col('totalAmount')), 'totalRevenue']
-            ]
+                [
+                    Order.sequelize.fn("SUM", Order.sequelize.col("totalAmount")),
+                    "totalRevenue",
+                ],
+            ],
         });
 
-        const totalRevenue = parseFloat(revenueResult[0] ?.dataValues ?.totalRevenue || 0);
+        const revenue =
+            parseFloat(revenueResult[0] ? .dataValues ? .totalRevenue || 0);
 
         res.json({
             success: true,
             data: {
-                counts: {
-                    books: totalBooks,
-                    users: totalUsers,
-                    orders: totalOrders,
-                    categories: totalCategories,
-                    revenue: totalRevenue.toFixed(2)
-                },
-                recentOrders,
-                lowStockBooks
-            }
+                totalBooks,
+                totalUsers,
+                totalOrders,
+                totalCategories,
+                revenue,
+            },
         });
 
-    } catch (error) {
-        console.error('[ERROR] Get dashboard stats failed:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to fetch dashboard statistics'
-        });
+    } catch (err) {
+        res.status(500).json({ error: "Dashboard failed" });
     }
 };
