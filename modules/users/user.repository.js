@@ -1,25 +1,24 @@
 const { User } = require("../../models");
 
-class UserRepository {
-  findByEmail(email) {
-    return User.findOne({ where: { email } });
-  }
-
-  findById(id) {
+exports.findById = (id) => {
     return User.findByPk(id);
-  }
+};
 
-  create(data) {
-    return User.create(data);
-  }
+exports.findAll = ({ limit, offset }) => {
+    return User.findAll({
+        limit,
+        offset,
+        order: [
+            ["createdAt", "DESC"]
+        ],
+    });
+};
 
-  update(user, data) {
-    return user.update(data);
-  }
+exports.update = async(id, data) => {
+    await User.update(data, { where: { id } });
+    return this.findById(id);
+};
 
-  list() {
-    return User.findAll({ attributes: { exclude: ["password"] } });
-  }
-}
-
-module.exports = new UserRepository();
+exports.delete = (id) => {
+    return User.destroy({ where: { id } });
+};
