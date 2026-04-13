@@ -1,95 +1,46 @@
 const bookService = require("./book.service");
 
-class BookController {
-  async createBook(req, res) {
+exports.getAllBooks = async(req, res, next) => {
     try {
-      const book = await bookService.createBook(req.body, req.file);
-
-      res.status(201).json({
-        success: true,
-        data: book,
-      });
+        const result = await bookService.getAll(req.query);
+        res.json(result);
     } catch (err) {
-      res.status(400).json({
-        success: false,
-        error: err.message,
-      });
+        next(err);
     }
-  }
+};
 
-  async updateBook(req, res) {
+exports.getBookById = async(req, res, next) => {
     try {
-      const book = await bookService.updateBook(
-        req.params.id,
-        req.body,
-        req.file,
-      );
-
-      res.json({
-        success: true,
-        data: book,
-      });
+        const book = await bookService.getById(req.params.id);
+        res.json(book);
     } catch (err) {
-      res.status(400).json({
-        success: false,
-        error: err.message,
-      });
+        next(err);
     }
-  }
+};
 
-  async deleteBook(req, res) {
+exports.createBook = async(req, res, next) => {
     try {
-      await bookService.deleteBook(req.params.id);
-
-      res.json({
-        success: true,
-        message: "Book deleted",
-      });
+        const book = await bookService.create(req.body);
+        res.status(201).json(book);
     } catch (err) {
-      res.status(400).json({
-        success: false,
-        error: err.message,
-      });
+        next(err);
     }
-  }
+};
 
-  async updateStock(req, res) {
+exports.updateBook = async(req, res, next) => {
     try {
-      const { quantity, action } = req.body;
-
-      const stock = await bookService.updateStock(
-        req.params.id,
-        quantity,
-        action,
-      );
-
-      res.json({
-        success: true,
-        stock,
-      });
+        const book = await bookService.update(req.params.id, req.body);
+        res.json(book);
     } catch (err) {
-      res.status(400).json({
-        success: false,
-        error: err.message,
-      });
+        next(err);
     }
-  }
+};
 
-  async getStats(req, res) {
+exports.deleteBook = async(req, res, next) => {
     try {
-      const stats = await bookService.getStats();
-
-      res.json({
-        success: true,
-        data: stats,
-      });
+        await bookService.delete(req.params.id);
+        res.json({ message: "Book deleted" });
     } catch (err) {
-      res.status(500).json({
-        success: false,
-        error: err.message,
-      });
+        next(err);
     }
-  }
-}
-
-module.exports = new BookController();
+};

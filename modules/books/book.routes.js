@@ -1,14 +1,32 @@
-const router = require("express").Router();
+const express = require("express");
 const controller = require("./book.controller");
-const upload = require("../../shared/middleware/upload");
+const validate = require("../../middlewares/validate.middleware");
+const auth = require("../../middlewares/auth.middleware");
+const role = require("../../middlewares/role.middleware");
 
-// ADMIN ROUTES
-router.post("/", upload.single("image"), controller.createBook);
-router.put("/:id", upload.single("image"), controller.updateBook);
-router.delete("/:id", controller.deleteBook);
-router.patch("/:id/stock", controller.updateStock);
+const { createBookSchema, updateBookSchema } = require("./book.validators");
 
-// STATS
-router.get("/stats", controller.getStats);
+const router = express.Router();
+
+// public
+router.get("/", controller.getAllBooks);
+router.get("/:id", controller.getBookById);
+
+// admin
+router.post(
+    "/",
+    auth,
+    role("admin"),
+    validate(createBookSchema),
+    controller.createBook,
+);
+router.put(
+    "/:id",
+    auth,
+    role("admin"),
+    validate(updateBookSchema),
+    controller.updateBook,
+);
+router.delete("/:id", auth, role("admin"), controller.deleteBook);
 
 module.exports = router;

@@ -1,102 +1,53 @@
 const bookRepo = require("./book.repository");
-const validator = require("./book.validators");
-const { uploadToCloudinary } = require("../../shared/utils/uploadImage");
-const { parseBoolean, parseNumber } = require("./book.utils");
-const { Category } = require("../../models");
+const { NotFoundError } = require("../../shared/errors");
+const { bookDTO } = require("./book.dto");
 
-class BookService {
-  async createBook(data, file) {
-    const errors = validator.validateCreate(data);
-    if (errors.length) throw new Error(errors.join(", "));
+exports.getAll = async(query) => {
+    const { page = 1, limit = 10, search, category, minPrice, maxPrice } = query;
 
-    const category = await Category.findByPk(data.categoryId);
-    if (!category) throw new Error("Category not found");
+    const offset = (page - 1) * limit;
 
-    if (data.isbn) {
-      const exists = await bookRepo.findByISBN(data.isbn);
-      if (exists) throw new Error("ISBN already exists");
-    }
-
-    let coverImage =
-      "https://via.placeholder.com/300x400/4A90E2/FFFFFF?text=Book";
-
-    if (file) {
-      const result = await uploadToCloudinary(file.buffer);
-      coverImage = result.secure_url;
-    }
-
-    return bookRepo.create({
-      title: data.title.trim(),
-      author: data.author.trim(),
-      description: data.description || null,
-      price: parseNumber(data.price),
-      stock: parseNumber(data.stock, 0),
-      categoryId: data.categoryId,
-      isbn: data.isbn || null,
-      pages: parseNumber(data.pages),
-      language: data.language || "English",
-      publishedDate: data.publishedDate || null,
-      isFeatured: parseBoolean(data.isFeatured),
-      coverImage,
+    const { rows, count } = await bookRepo.findAll({
+        limit,
+        offset,
+        search,
+        category,
+        minPrice,
+        maxPrice,
     });
-  }
 
-  async updateBook(id, data, file) {
+    return {
+        data: rows.map(bookDTO),
+        meta: {
+            total: count,
+            page: Number(page),
+            pages: Math.ceil(count / limit),
+        },
+    };
+};
+
+exports.getById = async(id) => {
     const book = await bookRepo.findById(id);
-    if (!book) throw new Error("Book not found");
+    if (!book) throw new NotFoundError("Book not found");
+    return bookDTO(book);
+};
 
-    let coverImage = book.coverImage;
+exports.create = async(data) => {
+    const book = await bookRepo.create(data);
+    return bookDTO(book);
+};
 
-    if (file) {
-      const result = await uploadToCloudinary(file.buffer);
-      coverImage = result.secure_url;
-    }
+exports.update = async(id, data) => {
+    const existing = await bookRepo.findById(id);
+    if (!existing) throw new NotFoundError("Book not found");
 
-    return bookRepo.update(book, {
-      ...data,
-      price: parseNumber(data.price, book.price),
-      stock: parseNumber(data.stock, book.stock),
-      pages: parseNumber(data.pages, book.pages),
-      isFeatured:
-        data.isFeatured !== undefined
-          ? parseBoolean(data.isFeatured)
-          : book.isFeatured,
-      coverImage,
-    });
-  }
+    const updated = await bookRepo.update(id, data);
+    return bookDTO(updated);
+};
 
-  async deleteBook(id) {
+exports.delete = async(id) => {
     const book = await bookRepo.findById(id);
-    if (!book) throw new Error("Book not found");
+    if (!book) throw new NotFoundError("Book not found");
 
-    await bookRepo.delete(book);
-    return true;
-  }
-
-  async updateStock(id, quantity, action) {
-    const book = await bookRepo.findById(id);
-    if (!book) throw new Error("Book not found");
-
-    const qty = Number(quantity);
-    if (isNaN(qty)) throw new Error("Invalid quantity");
-
-    let newStock = book.stock;
-
-    if (action === "add") newStock += qty;
-    else if (action === "subtract") newStock -= qty;
-    else newStock = qty;
-
-    if (newStock < 0) throw new Error("Stock cannot be negative");
-
-    await book.update({ stock: newStock });
-
-    return newStock;
-  }
-
-  async getStats() {
-    const totalBooks = await bookRepo.count();
-    return { totalBooks };
-  }
-}
-
-module.exports = new BookService();
+    await bookRepo.delete(id);
+};

@@ -1,41 +1,19 @@
-const validator = require("validator");
+const Joi = require("joi");
 
-class BookValidator {
-  validateCreate(data) {
-    const errors = [];
+exports.createBookSchema = Joi.object({
+    title: Joi.string().required(),
+    author: Joi.string().required(),
+    price: Joi.number().required(),
+    description: Joi.string().optional(),
+    categoryId: Joi.number().required(),
+    stock: Joi.number().default(0),
+});
 
-    if (!data.title || data.title.trim().length < 2) {
-      errors.push("Title is required (min 2 chars)");
-    }
-
-    if (!data.author || data.author.trim().length < 2) {
-      errors.push("Author is required");
-    }
-
-    if (!data.price || isNaN(data.price) || Number(data.price) < 0) {
-      errors.push("Valid price is required");
-    }
-
-    if (!data.categoryId) {
-      errors.push("Category is required");
-    }
-
-    if (data.isbn && !validator.isISBN(data.isbn + "")) {
-      errors.push("Invalid ISBN");
-    }
-
-    return errors;
-  }
-
-  validateStock(quantity) {
-    if (quantity === undefined || isNaN(quantity)) {
-      return "Invalid quantity";
-    }
-    if (Number(quantity) < 0) {
-      return "Quantity cannot be negative";
-    }
-    return null;
-  }
-}
-
-module.exports = new BookValidator();
+exports.updateBookSchema = Joi.object({
+    title: Joi.string().optional(),
+    author: Joi.string().optional(),
+    price: Joi.number().optional(),
+    description: Joi.string().optional(),
+    categoryId: Joi.number().optional(),
+    stock: Joi.number().optional(),
+});
