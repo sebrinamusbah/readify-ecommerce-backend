@@ -1,11 +1,11 @@
-const { body } = require("express-validator");
+const Joi = require("joi");
 
-exports.createCategoryValidator = [
-  body("name").isString().isLength({ min: 2 }),
-  body("description").optional().isString(),
-];
+exports.createCategorySchema = Joi.object({
+    name: Joi.string().required(),
+    parentId: Joi.number().allow(null),
+});
 
-exports.updateCategoryValidator = [
-  body("name").optional().isString().isLength({ min: 2 }),
-  body("description").optional().isString(),
-];
+exports.updateCategorySchema = Joi.object({
+    name: Joi.string().optional(),
+    parentId: Joi.number().allow(null),
+});

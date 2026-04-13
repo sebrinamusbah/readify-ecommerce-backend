@@ -1,133 +1,39 @@
-const repo = require("./category.repository");
-const slugify = require("slugify");
+const categoryRepo = require("./category.repository");
+const { NotFoundError } = require("../../shared/errors");
+const { categoryDTO, buildTree } = require("./category.dto");
 
-class CategoryService {
-    generateSlug(name) {
-        return slugify(name, {
-            lower: true,
-            strict: true,
-            remove: /[*+~.()'"!:@]/g,
-        });
-    }
+exports.getAll = async() => {
+    const categories = await categoryRepo.findAll();
 
-    async getAll() {
-        return repo.findAllWithBookCount();
-    }
+    // build hierarchical tree
+    const tree = buildTree(categories);
 
-    async getById(id) {
-        const category = await repo.findById(id);
-        if (!category) throw new Error("Category not found");
+    return tree;
+};
 
-        const bookCount = await repo.countBooks(id);
+exports.getById = async(id) => {
+    const category = await categoryRepo.findById(id);
+    if (!category) throw new NotFoundError("Category not found");
 
-        return {
-            ...category.toJSON(),
-            bookCount,
-        };
-    }
+    return categoryDTO(category);
+};
 
-    async getBySlug(slug) {
-        const category = await repo.findBySlug(slug);
-        if (!category) throw new Error("Category not found");
+exports.create = async(data) => {
+    const category = await categoryRepo.create(data);
+    return categoryDTO(category);
+};
 
-        const bookCount = await repo.countBooks(category.id);
+exports.update = async(id, data) => {
+    const existing = await categoryRepo.findById(id);
+    if (!existing) throw new NotFoundError("Category not found");
 
-        const featuredBooks = category.books
-            .filter((b) => b.isFeatured)
-            .slice(0, 5);
+    const updated = await categoryRepo.update(id, data);
+    return categoryDTO(updated);
+};
 
-        return {
-            ...category.toJSON(),
-            bookCount,
-            featuredBooks,
-        };
-    }
+exports.delete = async(id) => {
+    const existing = await categoryRepo.findById(id);
+    if (!existing) throw new NotFoundError("Category not found");
 
-    async create(data) {
-        const { name, description } = data;
-
-        if (!name || name.trim().length < 2) {
-            throw new Error("Category name too short");
-        }
-
-        const slug = this.generateSlug(name);
-
-        const exists = await repo.findDuplicate(name, slug);
-        if (exists) throw new Error("Category already exists");
-
-        return repo.create({
-            name: name.trim(),
-            slug,
-            description: description ? .trim() || null,
-        });
-    }
-
-    async update(id, data) {
-        const category = await repo.findById(id);
-        if (!category) throw new Error("Category not found");
-
-        const updateData = {};
-
-        if (data.name) {
-            const slug = this.generateSlug(data.name);
-
-            const exists = await repo.findDuplicate(data.name, slug, id);
-            if (exists) throw new Error("Category already exists");
-
-            updateData.name = data.name.trim();
-            updateData.slug = slug;
-        }
-
-        if (data.description !== undefined) {
-            updateData.description = data.description ? .trim() || null;
-        }
-
-        return repo.update(category, updateData);
-    }
-
-    async delete(id) {
-        const category = await repo.findById(id);
-        if (!category) throw new Error("Category not found");
-
-        const bookCount = await repo.countBooks(id);
-        if (bookCount > 0) {
-            throw new Error(`Category has ${bookCount} books`);
-        }
-
-        return repo.delete(category);
-    }
-
-    async summary() {
-        return repo.findSummary();
-    }
-
-    async search(q) {
-        if (!q || q.length < 2) {
-            throw new Error("Search too short");
-        }
-
-        const { Op } = require("sequelize");
-        const { Category } = require("../../models");
-
-        return Category.findAll({
-            where: {
-                name: {
-                    [Op.like]: `%${q}%`,
-                },
-            },
-            limit: 10,
-        });
-    }
-
-    async bulkCreate(categories) {
-        const data = categories.map((c) => ({
-            name: c.name.trim(),
-            slug: this.generateSlug(c.name),
-            description: c.description || null,
-        }));
-
-        return repo.create(data);
-    }
-}
-
-module.exports = new CategoryService();
+    await categoryRepo.delete(id);
+};

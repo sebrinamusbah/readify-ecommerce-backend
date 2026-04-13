@@ -1,18 +1,35 @@
-const router = require("express").Router();
+const express = require("express");
 const controller = require("./category.controller");
-const auth = require("../../middlewares/auth");
-const admin = require("../../middlewares/admin");
+const validate = require("../../middlewares/validate.middleware");
+const auth = require("../../middlewares/auth.middleware");
+const role = require("../../middlewares/role.middleware");
 
+const {
+    createCategorySchema,
+    updateCategorySchema,
+} = require("./category.validators");
+
+const router = express.Router();
+
+// public
 router.get("/", controller.getAll);
-router.get("/summary", controller.summary);
-router.get("/search", controller.search);
 router.get("/:id", controller.getById);
-router.get("/slug/:slug", controller.getBySlug);
 
-router.post("/", auth, admin, controller.create);
-router.post("/bulk", auth, admin, controller.bulkCreate);
-
-router.patch("/:id", auth, admin, controller.update);
-router.delete("/:id", auth, admin, controller.delete);
+// admin
+router.post(
+    "/",
+    auth,
+    role("admin"),
+    validate(createCategorySchema),
+    controller.create,
+);
+router.put(
+    "/:id",
+    auth,
+    role("admin"),
+    validate(updateCategorySchema),
+    controller.update,
+);
+router.delete("/:id", auth, role("admin"), controller.delete);
 
 module.exports = router;
