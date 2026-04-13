@@ -1,75 +1,51 @@
-const repo = require("./cart.repository");
-const { Book, sequelize } = require("../../models");
+const cartRepo = require("./cart.repository");
+const bookRepo = require("../books/book.repository");
+const { NotFoundError, BadRequestError } = require("../../shared/errors");
+const { cartDTO } = require("./cart.dto");
+const { calculateTotals } = require("./cart.utils");
 
-class CartService {
-  async getCart(userId) {
-    const items = await repo.getUserCart(userId);
+exports.getCart = async(userId) => {
+    const cart = await cartRepo.getOrCreateCart(userId);
+    return cartDTO(cart);
+};
 
-    let subtotal = 0;
-    let totalItems = 0;
+exports.addToCart = async(userId, { bookId, quantity }) => {
+    const book = await bookRepo.findById(bookId);
+    if (!book) throw new NotFoundError("Book not found");
 
-    const formatted = items.map((i) => {
-      const itemTotal = i.book.price * i.quantity;
-      subtotal += itemTotal;
-      totalItems += i.quantity;
-
-      return {
-        id: i.id,
-        bookId: i.bookId,
-        quantity: i.quantity,
-        book: i.book,
-        itemTotal,
-      };
-    });
-
-    return {
-      items: formatted,
-      summary: {
-        subtotal,
-        tax: subtotal * 0.1,
-        total: subtotal * 1.1,
-        totalItems,
-      },
-    };
-  }
-
-  async addToCart(userId, bookId, quantity) {
-    const book = await Book.findByPk(bookId);
-    if (!book) throw new Error("Book not found");
-
-    if (book.stock < quantity) throw new Error("Not enough stock");
-
-    const existing = await repo.findItem(userId, bookId);
-
-    if (existing) {
-      const newQty = existing.quantity + quantity;
-
-      if (book.stock < newQty) throw new Error("Not enough stock");
-
-      return repo.update(existing, newQty);
+    if (book.stock < quantity) {
+        throw new BadRequestError("Not enough stock");
     }
 
-    return repo.create({ userId, bookId, quantity });
-  }
+    await cartRepo.addOrUpdateItem(userId, bookId, quantity, book.price);
 
-  async updateItem(id, userId, quantity) {
-    const item = await repo.findItem(userId, id);
-    if (!item) throw new Error("Not found");
+    const cart = await cartRepo.getOrCreateCart(userId);
+    return cartDTO(calculateTotals(cart));
+};
 
-    if (quantity === 0) return repo.deleteItem(id, userId);
+exports.updateItem = async(userId, itemId, { quantity }) => {
+    const item = await cartRepo.findItem(itemId);
+    if (!item) throw new NotFoundError("Cart item not found");
 
-    if (item.book.stock < quantity) throw new Error("Not enough stock");
+    const book = await bookRepo.findById(item.bookId);
 
-    return repo.update(item, quantity);
-  }
+    if (book.stock < quantity) {
+        throw new BadRequestError("Not enough stock");
+    }
 
-  async remove(id, userId) {
-    return repo.deleteItem(id, userId);
-  }
+    await cartRepo.updateItem(itemId, quantity);
 
-  async clear(userId) {
-    return repo.clear(userId);
-  }
-}
+    const cart = await cartRepo.getOrCreateCart(userId);
+    return cartDTO(calculateTotals(cart));
+};
 
-module.exports = new CartService();
+exports.removeItem = async(userId, itemId) => {
+    await cartRepo.removeItem(itemId);
+
+    const cart = await cartRepo.getOrCreateCart(userId);
+    return cartDTO(calculateTotals(cart));
+};
+
+exports.clearCart = async(userId) => {
+    await cartRepo.clearCart(userId);
+};

@@ -1,32 +1,54 @@
-const { CartItem, Book } = require("../../models");
+const { Cart, CartItem, Book } = require("../../models");
 
-class CartRepository {
-  getUserCart(userId) {
-    return CartItem.findAll({
-      where: { userId },
-      include: [{ model: Book, as: "book" }],
+exports.getOrCreateCart = async(userId) => {
+    let cart = await Cart.findOne({
+        where: { userId },
+        include: [{ model: CartItem, include: [Book] }],
     });
-  }
 
-  findItem(userId, bookId) {
-    return CartItem.findOne({ where: { userId, bookId } });
-  }
+    if (!cart) {
+        cart = await Cart.create({ userId });
+    }
 
-  create(data) {
-    return CartItem.create(data);
-  }
+    return cart;
+};
 
-  update(item, quantity) {
-    return item.update({ quantity });
-  }
+exports.addOrUpdateItem = async(userId, bookId, quantity, price) => {
+    const cart = await this.getOrCreateCart(userId);
 
-  deleteItem(id, userId) {
-    return CartItem.destroy({ where: { id, userId } });
-  }
+    const existing = await CartItem.findOne({
+        where: { cartId: cart.id, bookId },
+    });
 
-  clear(userId) {
-    return CartItem.destroy({ where: { userId } });
-  }
-}
+    if (existing) {
+        return existing.update({
+            quantity: existing.quantity + quantity,
+        });
+    }
 
-module.exports = new CartRepository();
+    return CartItem.create({
+        cartId: cart.id,
+        bookId,
+        quantity,
+        price,
+    });
+};
+
+exports.findItem = (itemId) => {
+    return CartItem.findByPk(itemId);
+};
+
+exports.updateItem = (itemId, quantity) => {
+    return CartItem.update({ quantity }, { where: { id: itemId } });
+};
+
+exports.removeItem = (itemId) => {
+    return CartItem.destroy({ where: { id: itemId } });
+};
+
+exports.clearCart = async(userId) => {
+    const cart = await Cart.findOne({ where: { userId } });
+    if (!cart) return;
+
+    return CartItem.destroy({ where: { cartId: cart.id } });
+};
