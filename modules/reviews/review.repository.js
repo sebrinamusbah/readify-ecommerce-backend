@@ -1,25 +1,51 @@
-const { Review } = require("../../models");
+const { Review, User } = require("../../models");
+const { fn, col } = require("sequelize");
 
-class ReviewRepository {
-  findByBook(bookId) {
-    return Review.findAll({ where: { bookId } });
-  }
+exports.findByBook = (bookId, { limit, offset }) => {
+    return Review.findAndCountAll({
+        where: { bookId },
+        include: [{ model: User, attributes: ["id", "name"] }],
+        limit,
+        offset,
+        order: [
+            ["createdAt", "DESC"]
+        ],
+    });
+};
 
-  findUserReview(userId, bookId) {
+exports.findByUserAndBook = (userId, bookId) => {
     return Review.findOne({ where: { userId, bookId } });
-  }
+};
 
-  create(data) {
+exports.findById = (id) => {
+    return Review.findByPk(id);
+};
+
+exports.create = (data) => {
     return Review.create(data);
-  }
+};
 
-  update(review, data) {
-    return review.update(data);
-  }
+exports.update = async(id, data) => {
+    await Review.update(data, { where: { id } });
+    return this.findById(id);
+};
 
-  delete(id, userId) {
-    return Review.destroy({ where: { id, userId } });
-  }
-}
+exports.delete = (id) => {
+    return Review.destroy({ where: { id } });
+};
 
-module.exports = new ReviewRepository();
+exports.getBookRatingStats = async(bookId) => {
+    const result = await Review.findOne({
+        where: { bookId },
+        attributes: [
+            [fn("AVG", col("rating")), "avg"],
+            [fn("COUNT", col("id")), "count"],
+        ],
+        raw: true,
+    });
+
+    return {
+        avg: parseFloat(result.avg),
+        count: parseInt(result.count),
+    };
+};
