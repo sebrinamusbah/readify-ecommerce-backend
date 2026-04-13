@@ -1,12 +1,13 @@
-const router = require("express").Router();
+const express = require("express");
 const controller = require("./order.controller");
-const auth = require("../../middlewares/auth");
+const auth = require("../../middlewares/auth.middleware");
+
+const router = express.Router();
 
 router.use(auth);
 
 router.post("/", controller.createOrder);
-router.get("/", controller.getUserOrders);
+router.get("/", controller.getMyOrders);
 router.get("/:id", controller.getOrderById);
-router.patch("/:id/cancel", controller.cancelOrder);
 
 module.exports = router;

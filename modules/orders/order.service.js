@@ -1,107 +1,79 @@
-const orderRepo = require("./order.repository");
 const { sequelize } = require("../../models");
-const { Op } = require("sequelize");
+const orderRepo = require("./order.repository");
+const cartRepo = require("../cart/cart.repository");
+const bookRepo = require("../books/book.repository");
 
-class OrderService {
-    generateOrderNumber() {
-        return `ORD-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-    }
+const { NotFoundError, BadRequestError } = require("../../shared/errors");
 
-    async createOrder(userId, shippingAddress, notes) {
-        const transaction = await sequelize.transaction();
+const { orderDTO } = require("./order.dto");
 
-        try {
-            const cartItems = await orderRepo.getCartItems(userId, transaction);
+exports.createOrder = async(userId) => {
+    return sequelize.transaction(async(t) => {
+        // 1. get cart
+        const cart = await cartRepo.getOrCreateCart(userId);
 
-            if (!cartItems.length) {
-                throw new Error("Cart is empty");
-            }
-
-            let totalAmount = 0;
-
-            for (const item of cartItems) {
-                if (item.book.stock < item.quantity) {
-                    throw new Error(`Insufficient stock for ${item.book.title}`);
-                }
-
-                totalAmount += item.book.price * item.quantity;
-            }
-
-            const order = await orderRepo.createOrder({
-                    userId,
-                    orderNumber: this.generateOrderNumber(),
-                    totalAmount,
-                    shippingAddress: shippingAddress.trim(),
-                    notes: notes ? .trim() || null,
-                    status: "pending",
-                },
-                transaction
-            );
-
-            for (const item of cartItems) {
-                await item.book.decrement("stock", {
-                    by: item.quantity,
-                    transaction,
-                });
-
-                await orderRepo.createOrderItem({
-                        orderId: order.id,
-                        bookId: item.bookId,
-                        quantity: item.quantity,
-                        price: item.book.price,
-                        itemTotal: item.book.price * item.quantity,
-                    },
-                    transaction
-                );
-            }
-
-            await orderRepo.deleteCart(userId, transaction);
-
-            await transaction.commit();
-
-            return order;
-        } catch (err) {
-            await transaction.rollback();
-            throw err;
+        if (!cart.CartItems || cart.CartItems.length === 0) {
+            throw new BadRequestError("Cart is empty");
         }
-    }
 
-    async getUserOrders(userId) {
-        return orderRepo.getUserOrders(userId);
-    }
+        let total = 0;
+        const orderItemsData = [];
 
-    async getOrderById(id, userId) {
-        return orderRepo.getOrderById(id, userId);
-    }
+        // 2. validate stock + prepare snapshot
+        for (const item of cart.CartItems) {
+            const book = await bookRepo.findById(item.bookId);
 
-    async cancelOrder(orderId, userId) {
-        const transaction = await sequelize.transaction();
+            if (!book) throw new NotFoundError("Book not found");
 
-        try {
-            const order = await orderRepo.getOrderById(orderId, userId);
-
-            if (!order) throw new Error("Order not found");
-
-            if (!["pending", "processing"].includes(order.status)) {
-                throw new Error("Cannot cancel order");
+            if (book.stock < item.quantity) {
+                throw new BadRequestError(`Not enough stock for ${book.title}`);
             }
 
-            for (const item of order.items) {
-                await item.book.increment("stock", {
-                    by: item.quantity,
-                    transaction,
-                });
-            }
+            // reduce stock
+            await book.update({ stock: book.stock - item.quantity }, { transaction: t }, );
 
-            await orderRepo.updateOrderStatus(orderId, "cancelled", transaction);
+            const price = book.price;
 
-            await transaction.commit();
-            return true;
-        } catch (err) {
-            await transaction.rollback();
-            throw err;
+            total += price * item.quantity;
+
+            orderItemsData.push({
+                bookId: book.id,
+                title: book.title, // snapshot 🔥
+                price,
+                quantity: item.quantity,
+            });
         }
-    }
-}
 
-module.exports = new OrderService();
+        // 3. create order
+        const order = await orderRepo.create({
+                userId,
+                total,
+                status: "pending",
+            },
+            t,
+        );
+
+        // 4. create order items
+        await orderRepo.bulkCreateItems(order.id, orderItemsData, t);
+
+        // 5. clear cart
+        await cartRepo.clearCart(userId);
+
+        return orderDTO(await orderRepo.findById(order.id));
+    });
+};
+
+exports.getUserOrders = async(userId) => {
+    const orders = await orderRepo.findByUser(userId);
+    return orders.map(orderDTO);
+};
+
+exports.getById = async(userId, orderId) => {
+    const order = await orderRepo.findById(orderId);
+
+    if (!order || order.userId !== userId) {
+        throw new NotFoundError("Order not found");
+    }
+
+    return orderDTO(order);
+};

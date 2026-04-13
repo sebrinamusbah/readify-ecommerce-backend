@@ -1,13 +1,7 @@
-exports.generateOrderNumber = () => {
-  return `ORD-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-};
+// (optional for now, useful later for checkout info)
 
-exports.calculateTotals = (items) => {
-  let total = 0;
+const Joi = require("joi");
 
-  for (const item of items) {
-    total += item.price * item.quantity;
-  }
-
-  return total;
-};
+exports.createOrderSchema = Joi.object({
+    // later: address, paymentMethod, etc.
+});

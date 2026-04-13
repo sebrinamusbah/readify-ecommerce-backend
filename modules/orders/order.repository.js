@@ -1,66 +1,30 @@
-const {
-  Order,
-  OrderItem,
-  Book,
-  CartItem,
-  User,
-  Payment,
-} = require("../../models");
-const { Op } = require("sequelize");
+const { Order, OrderItem } = require("../../models");
 
-class OrderRepository {
-  async getCartItems(userId, transaction = null) {
-    return CartItem.findAll({
-      where: { userId },
-      include: [{ model: Book, as: "book" }],
-      transaction,
-      lock: transaction ? transaction.LOCK.UPDATE : undefined,
-    });
-  }
-
-  async createOrder(data, transaction) {
+exports.create = (data, transaction) => {
     return Order.create(data, { transaction });
-  }
+};
 
-  async createOrderItem(data, transaction) {
-    return OrderItem.create(data, { transaction });
-  }
+exports.bulkCreateItems = (orderId, items, transaction) => {
+    const data = items.map((item) => ({
+        ...item,
+        orderId,
+    }));
 
-  async deleteCart(userId, transaction) {
-    return CartItem.destroy({ where: { userId }, transaction });
-  }
+    return OrderItem.bulkCreate(data, { transaction });
+};
 
-  async getOrderById(id, userId) {
-    return Order.findOne({
-      where: { id, userId },
-      include: [
-        {
-          model: OrderItem,
-          as: "items",
-          include: [{ model: Book, as: "book" }],
-        },
-        { model: Payment, as: "payment" },
-      ],
-    });
-  }
-
-  async getUserOrders(userId) {
+exports.findByUser = (userId) => {
     return Order.findAll({
-      where: { userId },
-      include: [
-        {
-          model: OrderItem,
-          as: "items",
-          include: [{ model: Book, as: "book" }],
-        },
-      ],
-      order: [["createdAt", "DESC"]],
+        where: { userId },
+        include: [OrderItem],
+        order: [
+            ["createdAt", "DESC"]
+        ],
     });
-  }
+};
 
-  async updateOrderStatus(id, status, transaction = null) {
-    return Order.update({ status }, { where: { id }, transaction });
-  }
-}
-
-module.exports = new OrderRepository();
+exports.findById = (id) => {
+    return Order.findByPk(id, {
+        include: [OrderItem],
+    });
+};
