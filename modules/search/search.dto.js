@@ -3,5 +3,5 @@ exports.searchDTO = (book) => ({
     title: book.title,
     author: book.author,
     price: book.price,
-    category: book.Category ? .name,
+    category: book.Category ?.name,
 });

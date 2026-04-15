@@ -1,19 +1,43 @@
 module.exports = {
-    async up(queryInterface, Sequelize) {
-        await queryInterface.createTable("Payments", {
-            id: { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true },
-            amount: Sequelize.FLOAT,
-            status: Sequelize.STRING,
-            method: Sequelize.STRING,
-            orderId: {
-                type: Sequelize.INTEGER,
-                references: { model: "Orders", key: "id" },
-            },
-            createdAt: Sequelize.DATE,
-            updatedAt: Sequelize.DATE,
-        });
-    },
-    async down(queryInterface) {
-        await queryInterface.dropTable("Payments");
-    },
+  async up(queryInterface, Sequelize) {
+    await queryInterface.createTable("payments", {
+      id: {
+        type: Sequelize.INTEGER,
+        autoIncrement: true,
+        primaryKey: true,
+      },
+
+      amount: {
+        type: Sequelize.FLOAT,
+        allowNull: false,
+      },
+
+      status: {
+        type: Sequelize.STRING,
+        defaultValue: "pending",
+      },
+
+      method: {
+        type: Sequelize.STRING,
+        allowNull: false,
+      },
+
+      orderId: {
+        type: Sequelize.INTEGER,
+        allowNull: false,
+        references: {
+          model: "orders",
+          key: "id",
+        },
+        onDelete: "CASCADE",
+      },
+
+      createdAt: Sequelize.DATE,
+      updatedAt: Sequelize.DATE,
+    });
+  },
+
+  async down(queryInterface) {
+    await queryInterface.dropTable("payments");
+  },
 };

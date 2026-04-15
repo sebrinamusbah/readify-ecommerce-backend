@@ -14,9 +14,10 @@ exports.buildTree = (categories) => {
 
     categories.forEach((cat) => {
         if (cat.parentId) {
-            map[cat.parentId] ? .children.push(map[cat.id]);
+            map[cat.parentId] ?.children.push(map[cat.id]);
         } else {
             roots.push(map[cat.id]);
+
         }
     });
 

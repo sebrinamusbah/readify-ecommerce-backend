@@ -1,22 +1,53 @@
 module.exports = {
-    async up(queryInterface, Sequelize) {
-        await queryInterface.createTable("Books", {
-            id: { type: Sequelize.INTEGER, autoIncrement: true, primaryKey: true },
-            title: Sequelize.STRING,
-            author: Sequelize.STRING,
-            price: Sequelize.FLOAT,
-            description: Sequelize.TEXT,
-            stock: Sequelize.INTEGER,
-            categoryId: {
-                type: Sequelize.INTEGER,
-                references: { model: "Categories", key: "id" },
-            },
-            createdAt: Sequelize.DATE,
-            updatedAt: Sequelize.DATE,
-        });
-    },
+  async up(queryInterface, Sequelize) {
+    await queryInterface.createTable("books", {
+      id: {
+        type: Sequelize.INTEGER,
+        autoIncrement: true,
+        primaryKey: true,
+      },
 
-    async down(queryInterface) {
-        await queryInterface.dropTable("Books");
-    },
+      title: {
+        type: Sequelize.STRING,
+        allowNull: false,
+      },
+
+      author: {
+        type: Sequelize.STRING,
+        allowNull: false,
+      },
+
+      price: {
+        type: Sequelize.FLOAT,
+        allowNull: false,
+      },
+
+      description: {
+        type: Sequelize.TEXT,
+      },
+
+      stock: {
+        type: Sequelize.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+      },
+
+      categoryId: {
+        type: Sequelize.INTEGER,
+        allowNull: false,
+        references: {
+          model: "categories",
+          key: "id",
+        },
+        onDelete: "SET NULL",
+      },
+
+      createdAt: Sequelize.DATE,
+      updatedAt: Sequelize.DATE,
+    });
+  },
+
+  async down(queryInterface) {
+    await queryInterface.dropTable("books");
+  },
 };
